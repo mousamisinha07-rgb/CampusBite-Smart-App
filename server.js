@@ -84,7 +84,15 @@ function role(r){return (req,res,next)=>{if(req.user?.role!==r)return res.status
 function serializeOrder(r){return {id:r.public_id,items:r.items,total:Number(r.total),status:Number(r.status),discount:Number(r.discount),slot:r.slot,shop:r.shop,createdAt:new Date(r.created_at).getTime(),prepStartedAt:r.prep_started_at?new Date(r.prep_started_at).getTime():null,readyAt:r.ready_at?new Date(r.ready_at).getTime():null,completedAt:r.completed_at?new Date(r.completed_at).getTime():null,customerName:r.customer_name||null,customerCode:r.customer_code||null};}
 function serializeTx(r){return {icon:r.icon,title:r.title,sub:r.sub,amt:Number(r.amount),type:r.type,createdAt:new Date(r.created_at).getTime()};}
 
-app.get('/api/health',(req,res)=>res.json({ok:true,service:'CampusBite',time:new Date().toISOString()}));
+let dbReady = false;
+app.get('/api/health',(req,res)=>{
+  res.status(dbReady?200:200).json({
+    ok:true,
+    service:'CampusBite',
+    database:dbReady?'ready':'initializing',
+    time:new Date().toISOString()
+  });
+});
 app.post('/api/auth/customer',async(req,res)=>{
   try{const {customerCode,password}=req.body; const r=(await (await db()).query('SELECT * FROM customers WHERE customer_code=$1',[String(customerCode||'').trim()])).rows[0];
     if(!r || !(await bcrypt.compare(String(password||''),r.password_hash))) return res.status(401).json({error:'Invalid customer ID or password'});
@@ -196,4 +204,15 @@ app.patch('/api/staff/orders/:id/status',auth,role('staff'),async(req,res)=>{try
 app.get('/api/staff/summary',auth,role('staff'),async(req,res)=>{try{const d=await db();const day=req.query.date||new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());const rows=(await d.query(`SELECT * FROM orders WHERE shop=$1 AND (created_at AT TIME ZONE 'Asia/Kolkata')::date = $2::date`,[req.user.shop,day])).rows;const revenue=rows.reduce((a,r)=>a+Number(r.total),0);const active=rows.filter(r=>r.status<3).length;res.json({date:day,orders:rows.length,revenue,active});}catch(e){console.error(e);res.status(500).json({error:'Summary unavailable'});}});
 
 app.get('/{*splat}',(req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
-init().then(()=>app.listen(PORT,()=>console.log(`CampusBite listening on ${PORT}`))).catch(e=>{console.error(e);process.exit(1)});
+
+// Start HTTP immediately so Render can reach the service even while PostgreSQL
+// is waking up or the first-time schema initialization is running.
+const server = app.listen(PORT,'0.0.0.0',()=>{
+  console.log(`CampusBite listening on ${PORT}`);
+  init()
+    .then(()=>{ dbReady=true; console.log('CampusBite database initialization complete'); })
+    .catch(e=>console.error('CampusBite database initialization failed:',e));
+});
+
+process.on('SIGTERM',()=>server.close(()=>process.exit(0)));
+process.on('SIGINT',()=>server.close(()=>process.exit(0)));
