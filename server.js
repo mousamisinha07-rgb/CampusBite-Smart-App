@@ -167,7 +167,29 @@ app.post('/api/customer/autopay',auth,role('customer'),async(req,res)=>{const cl
 
 
 app.get('/api/menu',async(req,res)=>{try{const d=await db();const rows=(await d.query('SELECT id,shop,name,price,stock,available FROM menu_items ORDER BY id')).rows;res.json({items:rows});}catch(e){console.error(e);res.status(500).json({error:'Menu unavailable'});}});
-app.patch('/api/staff/menu/:id',auth,role('staff'),async(req,res)=>{try{const d=await db();const row=(await d.query('SELECT * FROM menu_items WHERE id=$1 AND shop=$2',[Number(req.params.id),req.user.shop])).rows[0];if(!row)return res.status(404).json({error:'Menu item not found'});const out=(await d.query('UPDATE menu_items SET available=$1 WHERE id=$2 RETURNING id,shop,name,available',[!!req.body.available,row.id])).rows[0];res.json({item:out});}catch(e){console.error(e);res.status(500).json({error:'Availability update failed'});}});
+app.patch('/api/staff/menu/:id',auth,role('staff'),async(req,res)=>{
+  try{
+    const d=await db();
+    const id=Number(req.params.id);
+    if(!Number.isInteger(id)) return res.status(400).json({error:'Invalid menu item'});
+    const row=(await d.query('SELECT * FROM menu_items WHERE id=$1',[id])).rows[0];
+    if(!row) return res.status(404).json({error:'Menu item not found'});
+    const canonicalShop=id>=100&&id<200?'Hari Sandwich':id>=200&&id<300?'Reo Store':id>=300&&id<400?'Campus Café':null;
+    const sameShop=canonicalShop && (
+      row.shop===req.user.shop ||
+      row.shop.replace('é','e').toLowerCase()===String(req.user.shop).replace('é','e').toLowerCase()
+    );
+    if(!sameShop || canonicalShop!==req.user.shop) return res.status(403).json({error:'You cannot change another shop\'s menu'});
+    const out=(await d.query(
+      'UPDATE menu_items SET available=$1 WHERE id=$2 RETURNING id,shop,name,available',
+      [!!req.body.available,row.id]
+    )).rows[0];
+    res.json({item:out});
+  }catch(e){
+    console.error(e);
+    res.status(500).json({error:'Availability update failed'});
+  }
+});
 
 app.get('/api/staff/orders',auth,role('staff'),async(req,res)=>{try{const d=await db();const rows=(await d.query(`SELECT o.*, s.name AS customer_name, s.customer_code FROM orders o JOIN customers s ON s.id=o.customer_id WHERE o.shop=$1 ORDER BY o.created_at DESC LIMIT 500`,[req.user.shop])).rows;res.json({orders:rows.map(serializeOrder)});}catch(e){console.error(e);res.status(500).json({error:'Orders unavailable'});}});
 app.patch('/api/staff/orders/:id/status',auth,role('staff'),async(req,res)=>{try{const d=await db();const row=(await d.query('SELECT * FROM orders WHERE public_id=$1 AND shop=$2',[req.params.id,req.user.shop])).rows[0];if(!row)return res.status(404).json({error:'Order not found'});if(Number(row.status)>=3)return res.status(400).json({error:'Order is already completed'});const next=Number(row.status)+1;if(next!==Number(req.body.status))return res.status(400).json({error:'Invalid next status'});let sql='UPDATE orders SET status=$1';const vals=[next,row.id];if(next===1)sql+=', prep_started_at=COALESCE(prep_started_at,NOW())';if(next===2)sql+=', ready_at=COALESCE(ready_at,NOW())';if(next===3)sql+=', completed_at=COALESCE(completed_at,NOW())';sql+=' WHERE id=$2 RETURNING *';const out=(await d.query(sql,vals)).rows[0];res.json({order:serializeOrder(out)});}catch(e){console.error(e);res.status(500).json({error:'Status update failed'});}});
