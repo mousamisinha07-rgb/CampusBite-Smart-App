@@ -635,6 +635,20 @@ body.staff-mode .staff-only-label{display:inline-flex;align-items:center}
   .checkoutHero{padding:20px}
   .checkoutRedesign{border-radius:20px}
 }
+ 
+#checkoutModal{align-items:flex-start;justify-content:center;overflow-y:auto;overflow-x:hidden;padding:12px}
+#checkoutModal .checkoutRedesign{margin:auto;max-height:none;overflow:visible}
+@media(max-height:760px){
+  #checkoutModal{padding:8px}
+  #checkoutModal .checkoutRedesign{margin:0 auto}
+  #checkoutModal .checkoutHero{padding:18px 22px 14px}
+  #checkoutModal .checkoutBody{padding:14px 22px 18px}
+  #checkoutModal .pickupCard{padding:11px}
+  #checkoutModal .pickupSelect{height:44px}
+  #checkoutModal .checkoutSummaryCard{margin-top:12px;padding:13px}
+  #checkoutModal .walletPay{margin-top:10px;padding:10px 12px}
+  #checkoutModal .checkoutAction{height:46px;margin-top:11px}
+}
 </style>
 <div class="modalBox checkoutRedesign">
   <div class="checkoutHero">
